@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Numbers</title>
+<style>
+:root{color-scheme:dark;--ink:#a6dbed;--bg:#071923}
+*{box-sizing:border-box}
+/* Include the outer margins so edge drags cannot start native text selection. */
+html,body,.screen,.screen *{-webkit-user-select:none;user-select:none}
+html,body{margin:0;width:100%;height:100%;overflow:hidden}
+body{background:#030c12;color:var(--ink);font-family:'Courier New',monospace;font-weight:400}
+button{font:inherit;color:inherit}
+.screen{position:relative;width:100%;height:100%;padding:min(4vh,34px) min(4vw,48px);background:radial-gradient(ellipse at 50% 45%,#0b2635 0%,#071a26 68%,#05131c 100%);text-shadow:0 0 7px #8cd4ee45;overflow:hidden}
+.screen:after{content:'';position:absolute;inset:0;pointer-events:none;z-index:20;background:repeating-linear-gradient(0deg,#0000 0px,#0000 2px,#0000001b 3px,#0000 4px);box-shadow:inset 0 0 110px #0007}
+.field{position:relative;height:100%;overflow:hidden;touch-action:none}
+.numbers{display:grid;grid-template-columns:repeat(var(--columns,1),52px);grid-template-rows:repeat(var(--rows,1),72px);place-content:center;height:100%}.number{border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:center;font-size:31px;position:relative;user-select:none;text-shadow:0 0 8px #93d6f150;transition:color .15s,background .15s;outline:none;-webkit-tap-highlight-color:transparent}.number span{display:inline-block;pointer-events:none;animation:drift var(--duration) ease-in-out infinite alternate;animation-delay:var(--delay)}
+/* Stable, offset pools of light overlap into an irregular selection wash. */
+.number::before{
+  content:'';
+  position:absolute;
+  inset:-22px -24px;
+  background:
+    radial-gradient(ellipse var(--glow-width,64%) var(--glow-height,58%) at var(--glow-x,50%) var(--glow-y,50%),
+      #a6dbed1c 0%,#a6dbed0d 38%,#a6dbed00 100%),
+    radial-gradient(ellipse 48% 62% at var(--glow-tail-x,60%) var(--glow-tail-y,40%),
+      #a6dbed0b 0%,#a6dbed00 100%);
+  opacity:0;
+  transition:opacity .42s cubic-bezier(.22,1,.36,1);
+  pointer-events:none;
+}
+.number.selected::before{opacity:var(--glow-strength,.8)}
+.number span{position:relative;z-index:1}
+.number.selected span{
+  animation-play-state:paused;
+  --base-scale:1.12;
+  color:#d7f0f8;
+  text-shadow:0 0 10px #a6dbed70,0 0 22px #a6dbed25;
+}
+@keyframes drift{
+  0%{translate:calc(var(--drift-x,1px) * -1) calc(var(--drift-y,2px) * -.6);scale:1}
+  50%{translate:calc(var(--drift-x,1px) * .35) var(--drift-y,2px);scale:var(--breath,1.02)}
+  100%{translate:var(--drift-x,1px) calc(var(--drift-y,2px) * -.3);scale:1}
+}.selection{
+  position:absolute;
+  display:none;
+  border:1px solid #a6dbed30;
+  border-radius:8px;
+  background:#9adaf007;
+  box-shadow:0 0 16px #a6dbed12,inset 0 0 12px #a6dbed08;
+  pointer-events:none;
+  z-index:3;
+}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+/* Compact phosphor-blue arrow: angular terminal silhouette, dark edge for contrast. */
+:root{--terminal-cursor:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2230%22%20viewBox%3D%220%200%2024%2030%22%3E%3Cpath%20d%3D%22M3%202%20L3%2022%20L8%2017%20L12.5%2026%20L16%2024.25%20L11.5%2015.5%20L19%2015.5%20Z%22%20fill%3D%22%23c2e7f1%22%20stroke%3D%22%2304131d%22%20stroke-width%3D%221.5%22%20stroke-linejoin%3D%22miter%22%2F%3E%3C%2Fsvg%3E") 3 2,default}
+html,body,.screen,.screen *{cursor:var(--terminal-cursor)}
+.number span{
+  transform:translate(var(--hover-x,0px),var(--hover-y,0px)) scale(calc(var(--base-scale,1) + var(--hover-scale,0)));
+  color:var(--ink);
+  text-shadow:0 0 8px #93d6f150,0 0 22px #a6dbed00;
+  filter:brightness(var(--hover-light,1));
+  transition:transform .32s cubic-bezier(.22,1,.36,1),
+    filter .35s ease-out,color .35s ease-out,text-shadow .4s ease-out,
+    opacity .28s ease-in-out;
+}
+.number.refreshing span{opacity:.12}
+@media(prefers-reduced-motion:reduce){
+  .number span{transform:scale(var(--base-scale,1))}
+}
+.fullscreen-status{
+  position:fixed;bottom:12px;left:50%;transform:translateX(-50%);
+  max-width:calc(100% - 32px);padding:8px 12px;
+  color:var(--ink);background:#071923ed;font-size:12px;text-align:center;
+  pointer-events:none;z-index:30;
+}
+</style>
+</head>
+<body>
+<main class="screen" aria-label="Number field. Double-click the outer margins to toggle fullscreen.">
+<section class="field" aria-label="Interactive number grid. Click or drag to select numbers. Press Escape to clear, and R to refresh unselected numbers.">
+<div class="numbers" id="numbers"></div>
+<div class="selection" aria-hidden="true"></div>
+</section>
+<div class="fullscreen-status" id="fullscreen-status" role="status" hidden></div>
+</main>
+<script>
+(()=>{'use strict';
+const screen=document.querySelector('.screen'),field=document.querySelector('.field'),grid=document.querySelector('#numbers'),box=document.querySelector('.selection');
+
+let fullscreenPending=false,fullscreenNoticeTimer=0;
+function fullscreenElement(){return document.fullscreenElement||document.webkitFullscreenElement}
+function fullscreenNotice(message){
+  const notice=document.querySelector('#fullscreen-status');
+  clearTimeout(fullscreenNoticeTimer);
+  notice.textContent=message;
+  notice.hidden=false;
+  fullscreenNoticeTimer=setTimeout(()=>{notice.hidden=true},4500);
+}
+async function toggleFullscreen(){
+  if(fullscreenPending)return;
+  fullscreenPending=true;
+  try{
+    if(fullscreenElement()){
+      const exit=document.exitFullscreen||document.webkitExitFullscreen;
+      if(!exit)throw new Error('Fullscreen exit unavailable');
+      await exit.call(document);
+    }else{
+      const enter=screen.requestFullscreen||screen.webkitRequestFullscreen;
+      if(!enter){
+        fullscreenNotice('Fullscreen is unavailable in this view. Open the file in a browser that supports fullscreen.');
+        return;
+      }
+      await enter.call(screen);
+    }
+    document.querySelector('#fullscreen-status').hidden=true;
+  }catch{
+    fullscreenNotice('This browser could not switch fullscreen. Try opening the file in a regular browser window.');
+  }finally{fullscreenPending=false}
+}
+screen.addEventListener('dblclick',e=>{
+  if(e.target!==screen||e.button!==0)return;
+  e.preventDefault();
+  toggleFullscreen();
+});
+
+// The canvas-like screen uses custom selection exclusively.
+document.addEventListener('selectstart',e=>e.preventDefault());
+const symbols='0123456789';
+const cells=[],selected=new Set();
+let gesture=null,columns=0,rows=0;
+const pendingRefresh=new Map();
+let waveTimer=0;
+function createCell(i){
+  const b=document.createElement('button');
+  b.className='number';
+  b.motionVariation=Math.random();
+  b.dataset.index=i;
+  // Choose once per cell: selection and digit refresh never reshuffle the glow.
+  const glowRanges={
+    '--glow-x':[32,68],'--glow-y':[30,70],
+    '--glow-width':[52,78],'--glow-height':[48,74],
+    '--glow-tail-x':[25,75],'--glow-tail-y':[25,75]
+  };
+  for(const [name,[min,max]] of Object.entries(glowRanges)){
+    b.style.setProperty(name,(min+Math.random()*(max-min)).toFixed(1)+'%');
+  }
+  b.style.setProperty('--glow-strength',(.55+Math.random()*.45).toFixed(3));
+  b.style.setProperty('--delay',(-Math.random()*8)+'s');
+  b.innerHTML='<span>'+symbols[Math.floor(Math.random()*symbols.length)]+'</span>';
+  b.tabIndex=-1;
+  b.setAttribute('aria-pressed','false');
+  grid.append(b);
+  cells.push(b);
+}
+// Broad, overlapping regions blend their motion rather than forming visible borders.
+const moodRegions=[
+  {x:.15,y:.25,duration:8.5,driftX:.9,driftY:1.4,breath:1.012,pull:.035,growth:.32,light:.24}, // calm
+  {x:.5,y:.8,duration:6,driftX:1.8,driftY:2.6,breath:1.03,pull:.12,growth:.66,light:.48}, // curious
+  {x:.87,y:.3,duration:3.5,driftX:2.8,driftY:3.4,breath:1.065,pull:-.045,growth:.44,light:.34} // restless
+];
+function randomMoodState(){
+  return {x:.08+Math.random()*.84,y:.08+Math.random()*.84,strength:.75+Math.random()*.5};
+}
+const moodTransitions=moodRegions.map(region=>{
+  const from=randomMoodState();
+  Object.assign(region,from);
+  return {from,to:randomMoodState(),elapsed:0,duration:45000+Math.random()*30000};
+});
+function advanceMoods(elapsed){
+  moodRegions.forEach((region,i)=>{
+    const motion=moodTransitions[i];
+    motion.elapsed=Math.min(motion.duration,motion.elapsed+elapsed);
+    const t=motion.elapsed/motion.duration;
+    // Zero velocity and acceleration at both ends avoid abrupt changes of direction.
+    const blend=t*t*t*(t*(t*6-15)+10);
+    for(const key of ['x','y','strength']){
+      region[key]=motion.from[key]+(motion.to[key]-motion.from[key])*blend;
+    }
+    if(t===1){
+      motion.from={x:region.x,y:region.y,strength:region.strength};
+      motion.to=randomMoodState();
+      motion.elapsed=0;
+      motion.duration=45000+Math.random()*30000;
+    }
+  });
+}
+function moodAt(x,y){
+  const weights=moodRegions.map(region=>region.strength*Math.exp(-((x-region.x)**2+(y-region.y)**2)/.12));
+  const total=weights.reduce((sum,w)=>sum+w,0);
+  const mood={};
+  for(const key of ['duration','driftX','driftY','breath','pull','growth','light']){
+    mood[key]=moodRegions.reduce((sum,region,i)=>sum+region[key]*weights[i]/total,0);
+  }
+  return mood;
+}
+function applyMoods(){
+  cells.forEach((cell,i)=>{
+    if(selected.has(i)&&cell.mood)return;
+    const x=columns>1?(i%columns)/(columns-1):.5;
+    const y=rows>1?Math.floor(i/columns)/(rows-1):.5;
+    const mood=moodAt(x,y);
+    cell.mood=mood;
+    const duration=mood.duration*(.94+cell.motionVariation*.12);
+    if(!cell.driftDuration){
+      cell.driftDuration=duration;
+      cell.style.setProperty('--duration',duration.toFixed(2)+'s');
+    }else if(!reducedMotion.matches){
+      // Change playback speed without resetting the animation's current phase.
+      const drift=cell.querySelector('span').getAnimations?.().find(animation=>animation.animationName==='drift');
+      if(drift?.updatePlaybackRate)drift.updatePlaybackRate(cell.driftDuration/duration);
+    }
+    cell.style.setProperty('--drift-x',mood.driftX.toFixed(2)+'px');
+    cell.style.setProperty('--drift-y',mood.driftY.toFixed(2)+'px');
+    cell.style.setProperty('--breath',mood.breath.toFixed(3));
+  });
+}
+let previousMoodTime=0;
+function updateMoodTime(now){
+  if(previousMoodTime&&!document.hidden&&!reducedMotion.matches){
+    advanceMoods(Math.min(1000,Math.max(0,now-previousMoodTime)));
+    applyMoods();
+    if(hoverPoint&&!hoverFrame)hoverFrame=requestAnimationFrame(renderHover);
+  }
+  previousMoodTime=now;
+}
+function scheduleMoodDrift(){
+  previousMoodTime=performance.now();
+  function tick(){
+    updateMoodTime(performance.now());
+    setTimeout(tick,document.hidden||reducedMotion.matches?1000:250);
+  }
+  setTimeout(tick,250);
+}
+// Match the fixed CSS tracks: resize the population, never the numerals.
+function resizeGrid(){
+  const nextColumns=Math.max(1,Math.floor(field.clientWidth/52));
+  const nextRows=Math.max(1,Math.floor(field.clientHeight/72));
+  invalidateHover();
+  if(nextColumns===columns&&nextRows===rows)return;
+  cancelRefreshes();
+  gesture=null;
+  box.style.display='none';
+  const count=nextColumns*nextRows;
+  while(cells.length>count){
+    selected.delete(cells.length-1);
+    cells.pop().remove();
+  }
+  while(cells.length<count)createCell(cells.length);
+  columns=nextColumns;
+  rows=nextRows;
+  grid.style.setProperty('--columns',columns);
+  grid.style.setProperty('--rows',rows);
+  applyMoods();
+}
+function setSelected(i,on){if(selected.has(i)===on)return;if(on)cancelCellRefresh(cells[i]);cells[i].classList.toggle('selected',on);cells[i].setAttribute('aria-pressed',String(on));on?selected.add(i):selected.delete(i)}
+function clear(){[...selected].forEach(i=>setSelected(i,false))}
+// Read layout only when it changes; pointer movement updates once per frame.
+const reducedMotion=matchMedia('(prefers-reduced-motion:reduce)');
+let hoverPoint=null,hoverFrame=0,centers=null,hovered=new Set();
+function clearHover(){
+  hoverPoint=null;
+  if(hoverFrame)cancelAnimationFrame(hoverFrame);
+  hoverFrame=0;
+  hovered.forEach(i=>{const style=cells[i].style;['--hover-x','--hover-y','--hover-scale','--hover-light'].forEach(p=>style.removeProperty(p))});
+  hovered.clear();
+}
+function renderHover(){
+  hoverFrame=0;
+  if(!hoverPoint)return;
+  if(!centers)centers=cells.map(cell=>{const r=cell.getBoundingClientRect();return r.width?{x:r.left+r.width/2,y:r.top+r.height/2,width:r.width}:null});
+  const radius=Math.max(90,Math.min(155,(centers.find(Boolean)?.width||40)*3.1));
+  const next=new Set();
+  centers.forEach((center,i)=>{
+    if(!center)return;
+    const dx=hoverPoint.x-center.x,dy=hoverPoint.y-center.y,distance=Math.hypot(dx,dy);
+    if(distance>=radius)return;
+    const falloff=1-distance/radius,strength=falloff*falloff*(3-2*falloff);
+    const style=cells[i].style,mood=cells[i].mood;
+    style.setProperty('--hover-x',(reducedMotion.matches?0:dx*strength*mood.pull).toFixed(2)+'px');
+    style.setProperty('--hover-y',(reducedMotion.matches?0:dy*strength*mood.pull).toFixed(2)+'px');
+    style.setProperty('--hover-scale',(reducedMotion.matches?0:strength*mood.growth).toFixed(3));
+    style.setProperty('--hover-light',(1+strength*mood.light).toFixed(3));
+    next.add(i);
+  });
+  hovered.forEach(i=>{if(!next.has(i))['--hover-x','--hover-y','--hover-scale','--hover-light'].forEach(p=>cells[i].style.removeProperty(p))});
+  hovered=next;
+}
+function queueHover(e){
+  if(e.pointerType==='touch')return;
+  const r=field.getBoundingClientRect();
+  if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom){clearHover();return}
+  hoverPoint={x:e.clientX,y:e.clientY};
+  if(!hoverFrame)hoverFrame=requestAnimationFrame(renderHover);
+}
+field.addEventListener('pointermove',queueHover);
+field.addEventListener('pointerleave',clearHover);
+field.addEventListener('pointercancel',clearHover);
+window.addEventListener('blur',clearHover);
+function invalidateHover(){centers=null;clearHover()}
+new ResizeObserver(resizeGrid).observe(field);
+document.addEventListener('scroll',invalidateHover,true);
+
+
+// Recheck protection when each queued change actually runs, not only when scheduled.
+function cancelCellRefresh(cell){
+  const timer=pendingRefresh.get(cell);
+  if(timer!==undefined)clearTimeout(timer);
+  pendingRefresh.delete(cell);
+  cell.classList.remove('refreshing');
+}
+function cancelRefreshes(){
+  pendingRefresh.forEach((timer,cell)=>cancelCellRefresh(cell));
+  clearTimeout(waveTimer);
+  waveTimer=0;
+}
+function canRefresh(cell,automatic){
+  const id=Number(cell.dataset.index);
+  return cells[id]===cell&&!selected.has(id)&&!gesture&&!document.hidden&&
+    (!automatic||!hovered.has(id));
+}
+function scheduleRefresh(cell,delay=0,automatic=false){
+  if(pendingRefresh.has(cell)||!canRefresh(cell,automatic))return;
+  pendingRefresh.set(cell,setTimeout(()=>{
+    if(!canRefresh(cell,automatic)){cancelCellRefresh(cell);return}
+    cell.classList.add('refreshing');
+    pendingRefresh.set(cell,setTimeout(()=>{
+      if(canRefresh(cell,automatic)){
+        const digit=cell.querySelector('span');
+        // Choose a different symbol from this variant's character set.
+        const current=symbols.indexOf(digit.textContent);
+        digit.textContent=symbols[(current+1+Math.floor(Math.random()*(symbols.length-1)))%symbols.length];
+      }
+      cancelCellRefresh(cell);
+    },reducedMotion.matches?0:280));
+  },delay));
+}
+function refreshWave(){
+  if(waveTimer||gesture||document.hidden)return;
+  cancelRefreshes();
+  const duration=reducedMotion.matches?0:1600;
+  cells.forEach((cell,i)=>{
+    const x=columns>1?(i%columns)/(columns-1):0;
+    const y=rows>1?Math.floor(i/columns)/(rows-1):0;
+    scheduleRefresh(cell,duration*(x*.85+y*.15));
+  });
+  waveTimer=setTimeout(()=>{waveTimer=0},duration+600);
+}
+function refreshScattered(){
+  if(waveTimer||gesture||document.hidden)return;
+  const candidates=cells.filter(cell=>canRefresh(cell,true)&&!pendingRefresh.has(cell));
+  const count=Math.min(candidates.length,Math.max(1,Math.min(5,Math.ceil(cells.length*.018))));
+  for(let i=0;i<count;i++){
+    const index=Math.floor(Math.random()*candidates.length);
+    scheduleRefresh(candidates.splice(index,1)[0],Math.random()*650,true);
+  }
+}
+function scheduleAmbientRefresh(){
+  setTimeout(()=>{refreshScattered();scheduleAmbientRefresh()},2800+Math.random()*1800);
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelRefreshes()});
+
+
+field.addEventListener('pointerdown',e=>{
+  if(e.button!==0||e.isPrimary===false||gesture)return;
+  const cell=e.target.closest('.number'),id=cell?Number(cell.dataset.index):null;
+  gesture={pointerId:e.pointerId,x:e.clientX,y:e.clientY,id,moved:false,add:e.shiftKey,wasSelected:id!==null&&selected.has(id)};
+  field.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+field.addEventListener('pointermove',e=>{
+  if(!gesture||e.pointerId!==gesture.pointerId)return;
+  const g=gesture;
+  g.moved ||=Math.hypot(e.clientX-g.x,e.clientY-g.y)>5;
+  if(!g.moved)return;
+  const r=field.getBoundingClientRect(),x=Math.min(g.x,e.clientX),y=Math.min(g.y,e.clientY),w=Math.abs(e.clientX-g.x),h=Math.abs(e.clientY-g.y);
+  Object.assign(box.style,{display:'block',left:x-r.left+'px',top:y-r.top+'px',width:w+'px',height:h+'px'});
+  cells.forEach((b,i)=>{
+    const c=b.getBoundingClientRect();
+    if(!c.width)return;
+    const inside=c.left+c.width/2>=x&&c.left+c.width/2<=x+w&&c.top+c.height/2>=y&&c.top+c.height/2<=y+h;
+    if(inside||!g.add)setSelected(i,inside);
+  });
+});
+field.addEventListener('pointerup',e=>{
+  if(!gesture||e.pointerId!==gesture.pointerId)return;
+  const g=gesture;
+  gesture=null;
+  box.style.display='none';
+  if(!g.moved){
+    if(!g.add)clear();
+    if(g.id!==null){setSelected(g.id,!g.wasSelected)}
+  }
+});
+function cancelGesture(e){
+  if(!gesture||e.pointerId!==gesture.pointerId)return;
+  gesture=null;
+  box.style.display='none';
+}
+field.addEventListener('pointercancel',cancelGesture);
+field.addEventListener('lostpointercapture',cancelGesture);
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&!fullscreenElement())clear();
+  if(e.key.toLowerCase()==='r'&&!e.repeat&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+    e.preventDefault();
+    refreshWave();
+  }
+});
+resizeGrid();
+scheduleAmbientRefresh();
+scheduleMoodDrift();
+})();
+</script>
+</body>
+</html>
