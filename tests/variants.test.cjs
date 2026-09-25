@@ -8,7 +8,7 @@ const htmlFor = file => readFileSync(join(__dirname, '..', file), 'utf8');
 const scriptFor = file => htmlFor(file).match(/<script>([\s\S]*?)<\/script>/)[1];
 
 test('all variants share identical behavior and styles', () => {
-  const normalize = s => s.replace(/const symbols='[^']+';/, "const symbols='';");
+  const normalize = s => s.replace(/const easterEgg='[^']+';/, "const easterEgg='';").replace(/const symbols='[^']+';/, "const symbols='';");
   for (const [file] of variants) {
     assert.equal(normalize(scriptFor(file)), normalize(scriptFor('numbers.html')));
     assert.equal(htmlFor(file).match(/<style>([\s\S]*?)<\/style>/)[1],
@@ -27,7 +27,7 @@ for (const [file, expected] of variants) {
     const math = Object.create(Math);
     math.random = () => 0;
     const context = {
-      symbols, cells, selected, pendingRefresh, gesture: null, hovered: new Set(),
+      symbols, cells, selected, pendingRefresh, eggCells: new Set(), placeEasterEgg() {}, gesture: null, hovered: new Set(),
       columns: 2, rows: 1, waveTimer: 0,
       reducedMotion: { matches: false }, Math: math,
       grid: { append() {} },
@@ -43,7 +43,7 @@ for (const [file, expected] of variants) {
       clearTimeout: id => timers.delete(id)
     };
     vm.createContext(context);
-    vm.runInContext(script.slice(script.indexOf('function createCell('), script.indexOf('// Broad, overlapping')), context);
+    vm.runInContext(script.slice(script.indexOf('function createCell('), script.indexOf('// Keep the hidden message')), context);
     vm.runInContext(script.slice(script.indexOf('function cancelCellRefresh('), script.indexOf('function refreshScattered(')), context);
     vm.runInContext(script.slice(script.indexOf('function setSelected('), script.indexOf('// Read layout only')), context);
     const nextTimer = () => { const [id, fn] = timers.entries().next().value; timers.delete(id); fn(); };
@@ -99,7 +99,7 @@ for (const [file] of variants) {
     const cells=Array.from({length:300},(_,i)=>({id:i}));
     const protectedIds=new Set([0,1,2]);
     const scheduled=[],timers=[];
-    const c={cells,Math:math,waveTimer:0,gesture:null,document:{hidden:false},
+    const c={cells,Math:math,eggCells:new Set([999]),waveTimer:0,gesture:null,document:{hidden:false},
       pendingRefresh:new Map(),
       canRefresh:cell=>!protectedIds.has(cell.id),
       scheduleRefresh:(cell,delay,automatic)=>scheduled.push({cell,delay,automatic}),
@@ -125,5 +125,68 @@ for (const [file] of variants) {
     cells.forEach(cell=>protectedIds.add(cell.id));
     c.refreshScattered();
     assert.equal(scheduled.length,before);
+  });
+}
+
+for (const [file, expectedEgg] of [['numbers.html','42'],['letters.html','HELLO'],['raidės.html','LABAS']]) {
+  function setupEgg(columns=10,rows=4) {
+    const script=scriptFor(file),timers=new Map();let id=0,seed=19;
+    const math=Object.create(Math);
+    math.random=()=>((seed=(seed*1664525+1013904223)>>>0)/4294967296);
+    const cells=Array.from({length:columns*rows},(_,i)=>{
+      const span={textContent:file==='numbers.html'?'0':'Z'};
+      return {dataset:{index:String(i)},querySelector:()=>span,
+        classList:{add(){},remove(){},toggle(){}},setAttribute(){}};
+    });
+    const c={cells,columns,rows,Math:math,selected:new Set(),eggCells:new Set(),
+      easterEgg:script.match(/const easterEgg='([^']+)';/)[1],
+      symbols:script.match(/const symbols='([^']+)';/)[1],
+      pendingRefresh:new Map(),waveTimer:0,gesture:null,document:{hidden:false},
+      hovered:new Set(),reducedMotion:{matches:false},
+      setTimeout(fn){timers.set(++id,fn);return id;},clearTimeout(id){timers.delete(id);}};
+    vm.createContext(c);
+    vm.runInContext(script.slice(script.indexOf('function placeEasterEgg('),script.indexOf('// Broad, overlapping')),c);
+    vm.runInContext(script.slice(script.indexOf('function cancelCellRefresh('),script.indexOf('function scheduleAmbientRefresh(')),c);
+    vm.runInContext(script.slice(script.indexOf('function setSelected('),script.indexOf('// Read layout only')),c);
+    c.flush=()=>{while(timers.size){const [key,fn]=timers.entries().next().value;timers.delete(key);fn();}};
+    c.message=()=>[...c.eggCells].map(i=>cells[i].querySelector().textContent).join('');
+    assert.equal(c.easterEgg,expectedEgg);
+    return c;
+  }
+  test(`${file}: hidden message survives ambient and manual refresh with ordinary selection`,()=>{
+    const c=setupEgg();c.placeEasterEgg();
+    assert.equal(c.message(),expectedEgg);
+    const indices=[...c.eggCells];
+    assert.equal(Math.floor(indices[0]/c.columns),Math.floor(indices.at(-1)/c.columns));
+    for(let i=0;i<50;i++){c.refreshScattered();c.flush();assert.equal(c.message(),expectedEgg);}
+    c.setSelected(indices[0],true);
+    assert(c.selected.has(indices[0]));
+    c.refreshWave();
+    assert.equal(c.selected.size,0);
+    assert.equal(c.message(),expectedEgg);
+    c.flush();assert.equal(c.message(),expectedEgg);
+    assert.notDeepEqual([...c.eggCells],indices);
+  });
+  test(`${file}: placement cancels pending changes and never overwrites selected symbols`,()=>{
+    const c=setupEgg();
+    c.cells.forEach(cell=>c.scheduleRefresh(cell,100));
+    c.selected.add(0);
+    const selectedText=c.cells[0].querySelector().textContent;
+    c.placeEasterEgg();
+    assert.equal(c.message(),expectedEgg);
+    assert.equal(c.cells[0].querySelector().textContent,selectedText);
+    for(const i of c.eggCells)assert(!c.pendingRefresh.has(c.cells[i]));
+    c.flush();assert.equal(c.message(),expectedEgg);
+  });
+  test(`${file}: narrow and temporarily crowded fields recover when space becomes available`,()=>{
+    const c=setupEgg(1,8);c.placeEasterEgg();
+    assert.equal(c.message(),expectedEgg);
+    c.columns=2;c.rows=1;c.cells.length=2;c.placeEasterEgg();
+    assert.equal(c.message(),expectedEgg.length<=2?expectedEgg:'');
+    const d=setupEgg();
+    d.cells.forEach((_,i)=>d.selected.add(i));d.placeEasterEgg();
+    assert.equal(d.eggCells.size,0);
+    d.clear();d.refreshScattered();
+    assert.equal(d.message(),expectedEgg);
   });
 }

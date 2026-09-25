@@ -128,6 +128,8 @@ screen.addEventListener('dblclick',e=>{
 // The canvas-like screen uses custom selection exclusively.
 document.addEventListener('selectstart',e=>e.preventDefault());
 const symbols='0123456789';
+const easterEgg='42';
+const eggCells=new Set();
 const cells=[],selected=new Set();
 let gesture=null,columns=0,rows=0;
 const pendingRefresh=new Map();
@@ -153,6 +155,27 @@ function createCell(i){
   b.setAttribute('aria-pressed','false');
   grid.append(b);
   cells.push(b);
+}
+// Keep the hidden message in ordinary cells, with the same motion and interaction.
+function placeEasterEgg(){
+  const length=easterEgg.length,candidates=[];
+  for(let start=0;start<cells.length;start++){
+    // Prefer a readable row; use a column on narrow screens, then wrapped reading order.
+    const step=columns>=length?1:rows>=length?columns:1;
+    if(columns>=length&&start%columns+length>columns)continue;
+    if(start+(length-1)*step>=cells.length)continue;
+    const indices=Array.from({length},(_,j)=>start+j*step);
+    if(indices.some((i,j)=>selected.has(i)&&cells[i].querySelector('span').textContent!==easterEgg[j]))continue;
+    candidates.push(indices);
+  }
+  eggCells.clear();
+  if(!candidates.length)return; // Never overwrite a selected character to make space.
+  const indices=candidates[Math.floor(Math.random()*candidates.length)];
+  indices.forEach((i,j)=>{
+    cancelCellRefresh(cells[i]);
+    cells[i].querySelector('span').textContent=easterEgg[j];
+    eggCells.add(i);
+  });
 }
 // Broad, overlapping regions blend their motion rather than forming visible borders.
 const moodRegions=[
@@ -287,6 +310,7 @@ function resizeGrid(){
   rows=nextRows;
   grid.style.setProperty('--columns',columns);
   grid.style.setProperty('--rows',rows);
+  placeEasterEgg();
   applyMoods();
 }
 function setSelected(i,on){if(selected.has(i)===on)return;if(on)cancelCellRefresh(cells[i]);cells[i].classList.toggle('selected',on);cells[i].setAttribute('aria-pressed',String(on));on?selected.add(i):selected.delete(i)}
@@ -361,7 +385,7 @@ function cancelRefreshes(){
 }
 function canRefresh(cell,automatic){
   const id=Number(cell.dataset.index);
-  return cells[id]===cell&&!selected.has(id)&&!gesture&&!document.hidden&&
+  return cells[id]===cell&&!eggCells.has(id)&&!selected.has(id)&&!gesture&&!document.hidden&&
     (!automatic||!hovered.has(id));
 }
 function scheduleRefresh(cell,delay=0,automatic=false){
@@ -384,6 +408,7 @@ function refreshWave(){
   if(gesture||document.hidden)return;
   clear();
   cancelRefreshes();
+  placeEasterEgg();
   const duration=reducedMotion.matches?0:1600;
   cells.forEach((cell,i)=>{
     const x=columns>1?(i%columns)/(columns-1):0;
@@ -394,6 +419,7 @@ function refreshWave(){
 }
 function refreshScattered(){
   if(waveTimer||gesture||document.hidden)return;
+  if(!eggCells.size)placeEasterEgg();
   const candidates=cells.filter(cell=>canRefresh(cell,true)&&!pendingRefresh.has(cell));
   if(!candidates.length)return;
   scheduleRefresh(candidates[Math.floor(Math.random()*candidates.length)],0,true);
