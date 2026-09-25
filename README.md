@@ -18,7 +18,7 @@ Random letters may unintentionally form offensive or inappropriate words. Use wi
 - **Nearby hover reactions:** characters shift, enlarge, and brighten as the pointer approaches.
 - **Soft selection:** irregular pools of light highlight selected characters, with smooth fades and drift paused in place.
 - **Gentle refresh:** automatic updates change one character at a time at irregular intervals, preserve selected characters and avoid the pointer's nearby area. Pressing **R** clears the current selection and refreshes the entire grid in a wave. Characters selected after the wave starts are protected from pending changes.
-- **Hidden messages:** `42`, `HELLO`, and `LABAS` stay tucked into their respective grids and get a random placement when you press **R**. They use the same styling and interactions as other characters. Placement needs enough space without changing selected characters.
+- **Easter eggs:** Look closely—you may find a few surprises.
 - **Fullscreen:** toggle from the page margins in browsers that support fullscreen.
 - **Reduced-motion support:** respects the browser preference by disabling drift, movement transitions, and refresh-wave staggering.
 
