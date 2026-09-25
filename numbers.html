@@ -195,9 +195,19 @@ function moodAt(x,y){
   }
   return mood;
 }
-function applyMoods(){
-  cells.forEach((cell,i)=>{
-    if(selected.has(i)&&cell.mood)return;
+function applyMoods(start=0,end=cells.length){
+  // Resolve animation handles before any style writes, and reuse them thereafter.
+  if(!reducedMotion.matches){
+    for(let i=start;i<end;i++){
+      const cell=cells[i];
+      if(!selected.has(i)&&cell.driftDuration&&!cell.driftAnimation){
+        cell.driftAnimation=cell.querySelector('span').getAnimations?.().find(animation=>animation.animationName==='drift');
+      }
+    }
+  }
+  for(let i=start;i<end;i++){
+    const cell=cells[i];
+    if(selected.has(i)&&cell.mood)continue;
     const x=columns>1?(i%columns)/(columns-1):.5;
     const y=rows>1?Math.floor(i/columns)/(rows-1):.5;
     const mood=moodAt(x,y);
@@ -208,20 +218,43 @@ function applyMoods(){
       cell.style.setProperty('--duration',duration.toFixed(2)+'s');
     }else if(!reducedMotion.matches){
       // Change playback speed without resetting the animation's current phase.
-      const drift=cell.querySelector('span').getAnimations?.().find(animation=>animation.animationName==='drift');
-      if(drift?.updatePlaybackRate)drift.updatePlaybackRate(cell.driftDuration/duration);
+      const rate=Math.round(cell.driftDuration/duration*1000)/1000;
+      if(cell.driftAnimation?.updatePlaybackRate&&rate!==cell.driftRate){
+        cell.driftAnimation.updatePlaybackRate(rate);
+        cell.driftRate=rate;
+      }
     }
-    cell.style.setProperty('--drift-x',mood.driftX.toFixed(2)+'px');
-    cell.style.setProperty('--drift-y',mood.driftY.toFixed(2)+'px');
-    cell.style.setProperty('--breath',mood.breath.toFixed(3));
-  });
+    const values=[mood.driftX.toFixed(2)+'px',mood.driftY.toFixed(2)+'px',mood.breath.toFixed(3)];
+    const properties=['--drift-x','--drift-y','--breath'];
+    values.forEach((value,j)=>{
+      if(cell.moodStyles?.[j]!==value)cell.style.setProperty(properties[j],value);
+    });
+    cell.moodStyles=values;
+  }
+}
+let moodFrame=0,moodCursor=0;
+function cancelMoodUpdate(){
+  if(moodFrame)cancelAnimationFrame(moodFrame);
+  moodFrame=0;
+  moodCursor=0;
+}
+function renderMoodBatch(){
+  moodFrame=0;
+  if(document.hidden||reducedMotion.matches){moodCursor=0;return}
+  const end=Math.min(cells.length,moodCursor+64);
+  applyMoods(moodCursor,end);
+  moodCursor=end;
+  if(moodCursor<cells.length)moodFrame=requestAnimationFrame(renderMoodBatch);
+  else{
+    moodCursor=0;
+    if(hoverPoint&&!hoverFrame)hoverFrame=requestAnimationFrame(renderHover);
+  }
 }
 let previousMoodTime=0;
 function updateMoodTime(now){
   if(previousMoodTime&&!document.hidden&&!reducedMotion.matches){
     advanceMoods(Math.min(1000,Math.max(0,now-previousMoodTime)));
-    applyMoods();
-    if(hoverPoint&&!hoverFrame)hoverFrame=requestAnimationFrame(renderHover);
+    if(!moodFrame)moodFrame=requestAnimationFrame(renderMoodBatch);
   }
   previousMoodTime=now;
 }
@@ -240,6 +273,8 @@ function resizeGrid(){
   invalidateHover();
   if(nextColumns===columns&&nextRows===rows)return;
   cancelRefreshes();
+  cancelMoodUpdate();
+  cancelSelectionFrame();
   gesture=null;
   box.style.display='none';
   const count=nextColumns*nextRows;
@@ -258,7 +293,16 @@ function setSelected(i,on){if(selected.has(i)===on)return;if(on)cancelCellRefres
 function clear(){[...selected].forEach(i=>setSelected(i,false))}
 // Read layout only when it changes; pointer movement updates once per frame.
 const reducedMotion=matchMedia('(prefers-reduced-motion:reduce)');
-let hoverPoint=null,hoverFrame=0,centers=null,hovered=new Set();
+let hoverPoint=null,hoverFrame=0,centers=null,fieldBounds=null,hovered=new Set();
+function readGeometry(){
+  if(!fieldBounds)fieldBounds=field.getBoundingClientRect();
+  if(!centers)centers=cells.map(cell=>{const r=cell.getBoundingClientRect();return r.width?{x:r.left+r.width/2,y:r.top+r.height/2,width:r.width}:null});
+}
+reducedMotion.addEventListener('change',()=>{
+  cancelMoodUpdate();
+  cells.forEach(cell=>{cell.driftAnimation=null;cell.driftRate=undefined});
+  invalidateHover();
+});
 function clearHover(){
   hoverPoint=null;
   if(hoverFrame)cancelAnimationFrame(hoverFrame);
@@ -269,7 +313,9 @@ function clearHover(){
 function renderHover(){
   hoverFrame=0;
   if(!hoverPoint)return;
-  if(!centers)centers=cells.map(cell=>{const r=cell.getBoundingClientRect();return r.width?{x:r.left+r.width/2,y:r.top+r.height/2,width:r.width}:null});
+  readGeometry();
+  const r=fieldBounds;
+  if(hoverPoint.x<r.left||hoverPoint.x>r.right||hoverPoint.y<r.top||hoverPoint.y>r.bottom){clearHover();return}
   const radius=Math.max(90,Math.min(155,(centers.find(Boolean)?.width||40)*3.1));
   const next=new Set();
   centers.forEach((center,i)=>{
@@ -289,8 +335,6 @@ function renderHover(){
 }
 function queueHover(e){
   if(e.pointerType==='touch')return;
-  const r=field.getBoundingClientRect();
-  if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom){clearHover();return}
   hoverPoint={x:e.clientX,y:e.clientY};
   if(!hoverFrame)hoverFrame=requestAnimationFrame(renderHover);
 }
@@ -298,7 +342,7 @@ field.addEventListener('pointermove',queueHover);
 field.addEventListener('pointerleave',clearHover);
 field.addEventListener('pointercancel',clearHover);
 window.addEventListener('blur',clearHover);
-function invalidateHover(){centers=null;clearHover()}
+function invalidateHover(){centers=null;fieldBounds=null;clearHover()}
 new ResizeObserver(resizeGrid).observe(field);
 document.addEventListener('scroll',invalidateHover,true);
 
@@ -351,42 +395,58 @@ function refreshWave(){
 function refreshScattered(){
   if(waveTimer||gesture||document.hidden)return;
   const candidates=cells.filter(cell=>canRefresh(cell,true)&&!pendingRefresh.has(cell));
-  const count=Math.min(candidates.length,Math.max(1,Math.min(5,Math.ceil(cells.length*.018))));
-  for(let i=0;i<count;i++){
-    const index=Math.floor(Math.random()*candidates.length);
-    scheduleRefresh(candidates.splice(index,1)[0],Math.random()*650,true);
-  }
+  if(!candidates.length)return;
+  scheduleRefresh(candidates[Math.floor(Math.random()*candidates.length)],0,true);
 }
 function scheduleAmbientRefresh(){
-  setTimeout(()=>{refreshScattered();scheduleAmbientRefresh()},2800+Math.random()*1800);
+  // Independent irregular arrivals, not a group of changes followed by a pause.
+  // Keep the previous average activity, scaled to the number of visible cells.
+  const activity=Math.max(1,Math.min(5,Math.ceil(cells.length*.018)));
+  const meanGap=3700/activity;
+  const delay=180-Math.log(1-Math.random())*(meanGap-180);
+  setTimeout(()=>{refreshScattered();scheduleAmbientRefresh()},delay);
 }
 document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelRefreshes()});
 
 
+let selectionFrame=0;
+function cancelSelectionFrame(){
+  if(selectionFrame)cancelAnimationFrame(selectionFrame);
+  selectionFrame=0;
+}
+function renderSelection(){
+  selectionFrame=0;
+  const g=gesture;
+  if(!g?.moved)return;
+  // All geometry is read together before changing the rectangle or selection.
+  readGeometry();
+  const r=fieldBounds,x=Math.min(g.x,g.lastX),y=Math.min(g.y,g.lastY),w=Math.abs(g.lastX-g.x),h=Math.abs(g.lastY-g.y);
+  Object.assign(box.style,{display:'block',left:x-r.left+'px',top:y-r.top+'px',width:w+'px',height:h+'px'});
+  centers.forEach((c,i)=>{
+    if(!c)return;
+    const inside=c.x>=x&&c.x<=x+w&&c.y>=y&&c.y<=y+h;
+    if(inside||!g.add)setSelected(i,inside);
+  });
+}
 field.addEventListener('pointerdown',e=>{
   if(e.button!==0||e.isPrimary===false||gesture)return;
   const cell=e.target.closest('.number'),id=cell?Number(cell.dataset.index):null;
-  gesture={pointerId:e.pointerId,x:e.clientX,y:e.clientY,id,moved:false,add:e.shiftKey,wasSelected:id!==null&&selected.has(id)};
+  gesture={pointerId:e.pointerId,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,id,moved:false,add:e.shiftKey,wasSelected:id!==null&&selected.has(id)};
   field.setPointerCapture(e.pointerId);
   e.preventDefault();
 });
 field.addEventListener('pointermove',e=>{
   if(!gesture||e.pointerId!==gesture.pointerId)return;
   const g=gesture;
+  g.lastX=e.clientX;g.lastY=e.clientY;
   g.moved ||=Math.hypot(e.clientX-g.x,e.clientY-g.y)>5;
-  if(!g.moved)return;
-  const r=field.getBoundingClientRect(),x=Math.min(g.x,e.clientX),y=Math.min(g.y,e.clientY),w=Math.abs(e.clientX-g.x),h=Math.abs(e.clientY-g.y);
-  Object.assign(box.style,{display:'block',left:x-r.left+'px',top:y-r.top+'px',width:w+'px',height:h+'px'});
-  cells.forEach((b,i)=>{
-    const c=b.getBoundingClientRect();
-    if(!c.width)return;
-    const inside=c.left+c.width/2>=x&&c.left+c.width/2<=x+w&&c.top+c.height/2>=y&&c.top+c.height/2<=y+h;
-    if(inside||!g.add)setSelected(i,inside);
-  });
+  if(g.moved&&!selectionFrame)selectionFrame=requestAnimationFrame(renderSelection);
 });
 field.addEventListener('pointerup',e=>{
   if(!gesture||e.pointerId!==gesture.pointerId)return;
   const g=gesture;
+  cancelSelectionFrame();
+  if(g.moved)renderSelection();
   gesture=null;
   box.style.display='none';
   if(!g.moved){
@@ -396,6 +456,7 @@ field.addEventListener('pointerup',e=>{
 });
 function cancelGesture(e){
   if(!gesture||e.pointerId!==gesture.pointerId)return;
+  cancelSelectionFrame();
   gesture=null;
   box.style.display='none';
 }

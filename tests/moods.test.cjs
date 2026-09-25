@@ -14,15 +14,19 @@ for (const file of ['numbers.html', 'letters.html', 'raidės.html']) {
     const cells = Array.from({ length: 6 }, () => {
       const rates = [];
       return {
-        motionVariation: .5, rates,
-        style: { setProperty(k, v) { this[k] = v; } },
-        querySelector: () => ({ getAnimations: () => [{ animationName: 'drift', updatePlaybackRate: rate => rates.push(rate) }] })
+        motionVariation: .5, rates, lookups: 0,
+        style: { writes: 0, setProperty(k, v) { this[k] = v; this.writes++; } },
+        querySelector() { this.lookups++;return { getAnimations: () => [{ animationName: 'drift', updatePlaybackRate: rate => rates.push(rate) }] }; }
       };
     });
+    const frames=new Map();let frameId=0;
     const context = {
       Math: math, cells, selected: new Set(), columns: 3, rows: 2,
       reducedMotion: { matches: false }, document: { hidden: false },
-      hoverPoint: null, hoverFrame: 0, requestAnimationFrame: () => 1, renderHover() {}
+      hoverPoint: null, hoverFrame: 0, renderHover() {}, frames,
+      requestAnimationFrame(fn) {const id=++frameId;frames.set(id,fn);return id;},
+      cancelAnimationFrame(id) {frames.delete(id);},
+      frame() {const pending=[...frames.values()];frames.clear();pending.forEach(fn=>fn());}
     };
     vm.createContext(context);
     vm.runInContext(source + '\nglobalThis.state={moodRegions,moodTransitions};', context);
@@ -80,4 +84,35 @@ for (const file of ['numbers.html', 'letters.html', 'raidės.html']) {
     c.updateMoodTime(180000);
     assert.equal(c.state.moodTransitions[0].elapsed - elapsed, 1000);
   });
+  test(`${file}: unchanged moods reuse animation handles and skip style and rate writes`, () => {
+    const c=setup();
+    c.applyMoods();c.applyMoods();
+    const writes=c.cells.map(cell=>cell.style.writes);
+    const rates=c.cells.map(cell=>cell.rates.length);
+    for(let i=0;i<10;i++)c.applyMoods();
+    assert.deepEqual(c.cells.map(cell=>cell.style.writes),writes);
+    assert.deepEqual(c.cells.map(cell=>cell.rates.length),rates);
+    assert(c.cells.every(cell=>cell.lookups===1));
+  });
+
+  test(`${file}: large fields update in bounded batches and cancelled batches stop`, () => {
+    const c=setup();
+    const originals=[...c.cells];
+    while(c.cells.length<150){
+      const base=originals[c.cells.length%6];
+      c.cells.push({...base,style:{...base.style},rates:[]});
+    }
+    c.updateMoodTime(100);c.updateMoodTime(350);
+    assert(c.cells.every(cell=>!cell.mood));
+    c.frame();
+    assert.equal(c.cells.filter(cell=>cell.mood).length,64);
+    c.frame();
+    assert.equal(c.cells.filter(cell=>cell.mood).length,128);
+    c.frame();
+    assert.equal(c.cells.filter(cell=>cell.mood).length,150);
+    c.updateMoodTime(600);
+    c.cancelMoodUpdate();
+    assert.equal(c.frames.size,0);
+  });
+
 }

@@ -90,3 +90,40 @@ for (const [file, expected] of variants) {
     assert.equal(pendingRefresh.size, 0);
   });
 }
+
+for (const [file] of variants) {
+  test(`${file}: ambient refresh uses irregular single-symbol arrivals and respects protection`, () => {
+    const script=scriptFor(file);
+    let random=.2;
+    const math=Object.create(Math);math.random=()=>random;
+    const cells=Array.from({length:300},(_,i)=>({id:i}));
+    const protectedIds=new Set([0,1,2]);
+    const scheduled=[],timers=[];
+    const c={cells,Math:math,waveTimer:0,gesture:null,document:{hidden:false},
+      pendingRefresh:new Map(),
+      canRefresh:cell=>!protectedIds.has(cell.id),
+      scheduleRefresh:(cell,delay,automatic)=>scheduled.push({cell,delay,automatic}),
+      setTimeout:(fn,delay)=>timers.push({fn,delay})};
+    vm.createContext(c);
+    vm.runInContext(script.slice(script.indexOf('function refreshScattered('),script.indexOf("document.addEventListener('visibilitychange'")),c);
+    c.refreshScattered();
+    assert.equal(scheduled.length,1);
+    assert.equal(scheduled[0].delay,0);
+    assert.equal(scheduled[0].automatic,true);
+    assert(!protectedIds.has(scheduled[0].cell.id));
+    c.pendingRefresh.set(scheduled[0].cell,1);
+    c.refreshScattered();
+    assert.notEqual(scheduled[1].cell,scheduled[0].cell);
+    for (const r of [.02,.25,.6,.95]) {random=r;c.scheduleAmbientRefresh();}
+    assert(timers.every(timer=>Number.isFinite(timer.delay)&&timer.delay>=180));
+    assert.equal(new Set(timers.map(timer=>timer.delay)).size,4);
+    const before=scheduled.length;
+    c.waveTimer=1;c.refreshScattered();c.waveTimer=0;
+    c.gesture={};c.refreshScattered();c.gesture=null;
+    c.document.hidden=true;c.refreshScattered();c.document.hidden=false;
+    assert.equal(scheduled.length,before);
+    cells.forEach(cell=>protectedIds.add(cell.id));
+    c.refreshScattered();
+    assert.equal(scheduled.length,before);
+  });
+}

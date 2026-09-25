@@ -9,19 +9,28 @@ const test = (name, fn) => runTest(`${filename}: ${name}`, fn);
 const html = readFileSync(join(__dirname, '..', filename), 'utf8');
 // Exercise the actual pointer handlers without requiring a browser dependency.
 const handlersSource = html.slice(
-  html.indexOf("field.addEventListener('pointerdown'"),
+  html.indexOf("let selectionFrame=0;"),
   html.indexOf("document.addEventListener('keydown'")
 );
 
 function setup() {
-  const handlers = {}, captures = [], selected = new Set();
+  const handlers = {}, captures = [], selected = new Set(), frames = new Map();
+  let frameId=0, geometryReads=0;
   const cells = [0, 1, 2].map(i => ({
     dataset: { index: String(i) },
     getBoundingClientRect: () => ({ left: i * 52, top: 0, width: 52, height: 72 })
   }));
   const box = { style: { display: 'none' } };
   const context = {
-    gesture: null, cells, box, selected,
+    gesture: null, cells, box, selected, centers: null, fieldBounds: null,
+    requestAnimationFrame(fn) { const id=++frameId;frames.set(id,fn);return id; },
+    cancelAnimationFrame(id) { frames.delete(id); },
+    readGeometry() {
+      if(context.centers)return;
+      geometryReads++;
+      context.fieldBounds={left:0,top:0};
+      context.centers=cells.map(cell=>{const r=cell.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}});
+    },
     field: {
       addEventListener: (name, handler) => { handlers[name] = handler; },
       setPointerCapture: id => captures.push(id),
@@ -40,7 +49,8 @@ function setup() {
       target: { closest: () => cells[index] }, preventDefault() {}, ...overrides
     });
   }
-  return { send, context, captures, selected, box };
+  function frame() { const pending=[...frames.values()];frames.clear();pending.forEach(fn=>fn()); }
+  return { send, context, captures, selected, box, frame, frames, reads:()=>geometryReads };
 }
 
 test('primary tap remains functional', () => {
@@ -61,7 +71,7 @@ test('second finger cannot replace the original tap', () => {
 });
 
 test('other pointer moves, releases, and cancellations leave the active drag intact', () => {
-  const { send, context, box, selected } = setup();
+  const { send, context, box, selected, frame } = setup();
   send('pointerdown', 1, { clientX: 0, clientY: 0 });
   for (const type of ['pointermove', 'pointerup', 'pointercancel', 'lostpointercapture']) {
     send(type, 2, { clientX: 150, clientY: 72 });
@@ -70,6 +80,7 @@ test('other pointer moves, releases, and cancellations leave the active drag int
     assert.equal(box.style.display, 'none');
   }
   send('pointermove', 1, { clientX: 104, clientY: 72 });
+  frame();
   assert.deepEqual([...selected], [0, 1]);
   send('pointerup', 1);
   assert.equal(context.gesture, null);
@@ -78,7 +89,7 @@ test('other pointer moves, releases, and cancellations leave the active drag int
 
 for (const type of ['pointercancel', 'lostpointercapture']) {
   test(`${type} ends the matching gesture and permits another selection`, () => {
-    const { send, context, box, selected } = setup();
+    const { send, context, box, selected, frame } = setup();
     send('pointerdown', 1, { clientX: 0, clientY: 0 });
     send('pointermove', 1, { clientX: 52, clientY: 72 });
     send(type, 1);
@@ -106,6 +117,33 @@ test('shift selection still preserves existing selected digits', () => {
   send('pointerdown', 1, { index: 1, shiftKey: true });
   send('pointerup', 1);
   assert.deepEqual([...selected], [0, 1]);
+});
+
+test('drag coalesces moves, caches geometry, and flushes the final pending move on release', () => {
+  const {send,frame,frames,selected,reads}=setup();
+  send('pointerdown',1,{clientX:0,clientY:0});
+  for(let x=10;x<=104;x++)send('pointermove',1,{clientX:x,clientY:72});
+  assert.equal(frames.size,1);
+  assert.equal(reads(),0);
+  frame();
+  assert.deepEqual([...selected],[0,1]);
+  assert.equal(reads(),1);
+  send('pointermove',1,{clientX:156,clientY:72});
+  send('pointerup',1,{clientX:156,clientY:72});
+  assert.deepEqual([...selected],[0,1,2]);
+  assert.equal(reads(),1);
+  assert.equal(frames.size,0);
+});
+
+test('cancelled pending drag cannot change a later selection', () => {
+  const {send,frame,frames,selected}=setup();
+  send('pointerdown',1,{clientX:0,clientY:0});
+  send('pointermove',1,{clientX:104,clientY:72});
+  send('pointercancel',1);
+  assert.equal(frames.size,0);
+  send('pointerdown',2,{index:2});send('pointerup',2,{index:2});
+  frame();
+  assert.deepEqual([...selected],[2]);
 });
 
 }
