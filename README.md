@@ -1,4 +1,4 @@
-# Interactive Number Moods
+# Interactive Symbols Moods
 
 Interactive number and letter grids with subtle moods, drifting motion, and a soft blue CRT glow. Each version is a standalone HTML file with no dependencies or network connection required.
 
