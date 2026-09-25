@@ -49,7 +49,7 @@ Reloading generates a fresh field; selections are not saved. Resizing can rearra
 
 ## Inspiration
 
-Inspired by the retro computer-screen atmosphere of *Severance*. An independent, unofficial project, not affiliated with or endorsed by the show's creators or rights holders.
+Inspired by the retro computer-screen atmosphere of *Severance*. An independent, unofficial project, not affiliated with the show.
 
 ## Author and AI assistance
 
@@ -57,8 +57,4 @@ Created and directed by Kazimieras Badokas, with GPT-6 Astra contributing as an 
 
 ## License
 
-Copyright (c) 2026 Kazimieras Badokas.
-
 [MIT License](LICENSE)
-
-The software is provided “as is”, without warranty of any kind. Use it at your own risk.
