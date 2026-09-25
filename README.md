@@ -17,7 +17,7 @@ Random letters may unintentionally form offensive or inappropriate words. Use wi
 - **Regional moods:** calm, curious, and restless areas slowly wander and vary in strength, easing toward random targets over 45–75 seconds. Their motion and hover responses blend smoothly; selected characters keep their current mood.
 - **Nearby hover reactions:** characters shift, enlarge, and brighten as the pointer approaches.
 - **Soft selection:** irregular pools of light highlight selected characters, with smooth fades and drift paused in place.
-- **Gentle refresh:** scattered characters change automatically; a manual refresh sends a wave across the grid. Selected values stay unchanged, and automatic updates avoid the pointer's nearby area.
+- **Gentle refresh:** automatic updates preserve selected characters and avoid the pointer's nearby area. Pressing **R** clears the current selection and refreshes the entire grid in a wave. Characters selected after the wave starts are protected from pending changes.
 - **Fullscreen:** toggle from the page margins in browsers that support fullscreen.
 - **Reduced-motion support:** respects the browser preference by disabling drift, movement transitions, and refresh-wave staggering.
 
@@ -32,7 +32,7 @@ Random letters may unintentionally form offensive or inappropriate words. Use wi
 | Shift + drag | Add characters to the selection |
 | Double-click the outer margins | Toggle fullscreen |
 | Escape | Exit fullscreen; otherwise clear the selection |
-| R | Refresh unselected characters in a wave |
+| R | Clear the selection and refresh the entire grid in a wave |
 
 ## Customization
 

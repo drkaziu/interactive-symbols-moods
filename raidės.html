@@ -79,7 +79,7 @@ html,body,.screen,.screen *{cursor:var(--terminal-cursor)}
 </head>
 <body>
 <main class="screen" aria-label="Lithuanian letter field. Double-click the outer margins to toggle fullscreen.">
-<section class="field" aria-label="Interactive Lithuanian letter grid. Click or drag to select letters. Press Escape to clear, and R to refresh unselected letters.">
+<section class="field" aria-label="Interactive Lithuanian letter grid. Click or drag to select letters. Press Escape to clear, and R to clear the selection and refresh all letters.">
 <div class="numbers" id="numbers" lang="lt"></div>
 <div class="selection" aria-hidden="true"></div>
 </section>
@@ -337,7 +337,8 @@ function scheduleRefresh(cell,delay=0,automatic=false){
   },delay));
 }
 function refreshWave(){
-  if(waveTimer||gesture||document.hidden)return;
+  if(gesture||document.hidden)return;
+  clear();
   cancelRefreshes();
   const duration=reducedMotion.matches?0:1600;
   cells.forEach((cell,i)=>{

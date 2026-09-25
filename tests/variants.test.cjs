@@ -28,12 +28,13 @@ for (const [file, expected] of variants) {
     math.random = () => 0;
     const context = {
       symbols, cells, selected, pendingRefresh, gesture: null, hovered: new Set(),
+      columns: 2, rows: 1, waveTimer: 0,
       reducedMotion: { matches: false }, Math: math,
       grid: { append() {} },
       document: { hidden: false, createElement() {
         const span = { textContent: '' };
         return { dataset: {}, style: { setProperty() {} },
-          classList: { add() {}, remove() {} }, setAttribute() {},
+          classList: { add() {}, remove() {}, toggle() {} }, setAttribute() {},
           set innerHTML(value) { span.textContent = value.match(/<span>(.)<\/span>/)[1]; },
           querySelector: () => span
         };
@@ -43,7 +44,8 @@ for (const [file, expected] of variants) {
     };
     vm.createContext(context);
     vm.runInContext(script.slice(script.indexOf('function createCell('), script.indexOf('// Broad, overlapping')), context);
-    vm.runInContext(script.slice(script.indexOf('function cancelCellRefresh('), script.indexOf('function refreshWave(')), context);
+    vm.runInContext(script.slice(script.indexOf('function cancelCellRefresh('), script.indexOf('function refreshScattered(')), context);
+    vm.runInContext(script.slice(script.indexOf('function setSelected('), script.indexOf('// Read layout only')), context);
     const nextTimer = () => { const [id, fn] = timers.entries().next().value; timers.delete(id); fn(); };
     context.createCell(0);
     assert.equal(cells[0].querySelector().textContent, symbols[0]);
@@ -62,6 +64,29 @@ for (const [file, expected] of variants) {
     const before = cells[0].querySelector().textContent;
     context.scheduleRefresh(cells[0]); nextTimer(); selected.add(0); nextTimer();
     assert.equal(cells[0].querySelector().textContent, before);
+    assert.equal(pendingRefresh.size, 0);
+
+    // Manual refresh releases existing selections and changes every cell.
+    const beforeWave = cells.map(cell => cell.querySelector().textContent);
+    context.refreshWave();
+    assert.equal(selected.size, 0);
+    while (timers.size) nextTimer();
+    cells.forEach((cell, i) => assert.notEqual(cell.querySelector().textContent, beforeWave[i]));
+
+    // Selections made after refresh starts still protect pending changes.
+    const protectedValue = cells[0].querySelector().textContent;
+    context.refreshWave();
+    context.setSelected(0, true);
+    while (timers.size) nextTimer();
+    assert.equal(cells[0].querySelector().textContent, protectedValue);
+    assert(selected.has(0));
+
+    // A new refresh also resets a selection made during an unfinished wave.
+    context.refreshWave();
+    context.setSelected(1, true);
+    context.refreshWave();
+    assert.equal(selected.size, 0);
+    while (timers.size) nextTimer();
     assert.equal(pendingRefresh.size, 0);
   });
 }
