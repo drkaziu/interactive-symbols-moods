@@ -66,6 +66,20 @@ html,body,.screen,.screen *{cursor:var(--terminal-cursor)}
     opacity .28s ease-in-out;
 }
 .number.refreshing span{opacity:.12}
+.number.discovery-still span{animation-play-state:paused}
+.number.discovery-glow::before{opacity:1}
+.discovery-ripple{
+  position:absolute;width:440px;height:440px;margin:-220px 0 0 -220px;
+  border:1px solid #a6dbed28;border-radius:50%;
+  box-shadow:0 0 18px #a6dbed10,inset 0 0 18px #a6dbed08;
+  pointer-events:none;z-index:2;opacity:0;
+}
+.discovery-ripple.active{animation:discovery-ripple 1.8s ease-out both}
+@keyframes discovery-ripple{
+  0%{transform:scale(.12);opacity:0}
+  18%{opacity:.6}
+  100%{transform:scale(1);opacity:0}
+}
 @media(prefers-reduced-motion:reduce){
   .number span{transform:scale(var(--base-scale,1))}
 }
@@ -82,6 +96,7 @@ html,body,.screen,.screen *{cursor:var(--terminal-cursor)}
 <section class="field" aria-label="Interactive Lithuanian letter grid. Click or drag to select letters. Press Escape to clear, and R to clear the selection and refresh all letters.">
 <div class="numbers" id="numbers" lang="lt"></div>
 <div class="selection" aria-hidden="true"></div>
+<div class="discovery-ripple" aria-hidden="true"></div>
 </section>
 <div class="fullscreen-status" id="fullscreen-status" role="status" hidden></div>
 </main>
@@ -158,6 +173,7 @@ function createCell(i){
 }
 // Keep the hidden message in ordinary cells, with the same motion and interaction.
 function placeEasterEgg(){
+  resetDiscovery();
   const length=easterEgg.length,candidates=[];
   for(let start=0;start<cells.length;start++){
     // Prefer a readable row; use a column on narrow screens, then wrapped reading order.
@@ -230,7 +246,7 @@ function applyMoods(start=0,end=cells.length){
   }
   for(let i=start;i<end;i++){
     const cell=cells[i];
-    if(selected.has(i)&&cell.mood)continue;
+    if((selected.has(i)||cell.discoveryStill)&&cell.mood)continue;
     const x=columns>1?(i%columns)/(columns-1):.5;
     const y=rows>1?Math.floor(i/columns)/(rows-1):.5;
     const mood=moodAt(x,y);
@@ -294,6 +310,7 @@ function resizeGrid(){
   const nextColumns=Math.max(1,Math.floor(field.clientWidth/52));
   const nextRows=Math.max(1,Math.floor(field.clientHeight/72));
   invalidateHover();
+  resetDiscovery(false);
   if(nextColumns===columns&&nextRows===rows)return;
   cancelRefreshes();
   cancelMoodUpdate();
@@ -313,7 +330,7 @@ function resizeGrid(){
   placeEasterEgg();
   applyMoods();
 }
-function setSelected(i,on){if(selected.has(i)===on)return;if(on)cancelCellRefresh(cells[i]);cells[i].classList.toggle('selected',on);cells[i].setAttribute('aria-pressed',String(on));on?selected.add(i):selected.delete(i)}
+function setSelected(i,on){if(selected.has(i)===on)return;if(on)cancelCellRefresh(cells[i]);cells[i].classList.toggle('selected',on);cells[i].setAttribute('aria-pressed',String(on));on?selected.add(i):selected.delete(i);queueDiscovery()}
 function clear(){[...selected].forEach(i=>setSelected(i,false))}
 // Read layout only when it changes; pointer movement updates once per frame.
 const reducedMotion=matchMedia('(prefers-reduced-motion:reduce)');
@@ -323,6 +340,7 @@ function readGeometry(){
   if(!centers)centers=cells.map(cell=>{const r=cell.getBoundingClientRect();return r.width?{x:r.left+r.width/2,y:r.top+r.height/2,width:r.width}:null});
 }
 reducedMotion.addEventListener('change',()=>{
+  resetDiscovery(false);
   cancelMoodUpdate();
   cells.forEach(cell=>{cell.driftAnimation=null;cell.driftRate=undefined});
   invalidateHover();
@@ -343,7 +361,7 @@ function renderHover(){
   const radius=Math.max(90,Math.min(155,(centers.find(Boolean)?.width||40)*3.1));
   const next=new Set();
   centers.forEach((center,i)=>{
-    if(!center)return;
+    if(!center||cells[i].discoveryStill)return;
     const dx=hoverPoint.x-center.x,dy=hoverPoint.y-center.y,distance=Math.hypot(dx,dy);
     if(distance>=radius)return;
     const falloff=1-distance/radius,strength=falloff*falloff*(3-2*falloff);
@@ -371,6 +389,65 @@ new ResizeObserver(resizeGrid).observe(field);
 document.addEventListener('scroll',invalidateHover,true);
 
 
+// A completed selection earns one quiet acknowledgement until it is released.
+const discoveryRipple=document.querySelector('.discovery-ripple');
+let discoveryFrame=0,discoveryTimer=0,discoveryComplete=false;
+const discoveryCells=new Set();
+function releaseStillness(){
+  discoveryCells.forEach(cell=>{
+    cell.discoveryStill=false;
+    cell.classList.remove('discovery-still','discovery-glow');
+  });
+  discoveryCells.clear();
+}
+function resetDiscovery(rearm=true){
+  if(discoveryFrame)cancelAnimationFrame(discoveryFrame);
+  discoveryFrame=0;
+  clearTimeout(discoveryTimer);discoveryTimer=0;
+  releaseStillness();
+  discoveryRipple.classList.remove('active');
+  if(rearm)discoveryComplete=false;
+}
+function queueDiscovery(){
+  if(!discoveryFrame)discoveryFrame=requestAnimationFrame(checkDiscovery);
+}
+function checkDiscovery(){
+  discoveryFrame=0;
+  const complete=eggCells.size===easterEgg.length&&[...eggCells].every(i=>selected.has(i));
+  if(!complete){resetDiscovery();return}
+  if(discoveryComplete||document.hidden)return;
+  discoveryComplete=true;
+  if(reducedMotion.matches){
+    eggCells.forEach(i=>{discoveryCells.add(cells[i]);cells[i].classList.add('discovery-glow')});
+    discoveryTimer=setTimeout(()=>{releaseStillness();discoveryTimer=0},1400);
+    return;
+  }
+  readGeometry();
+  const points=[...eggCells].map(i=>centers[i]).filter(Boolean);
+  if(!points.length)return;
+  const x=points.reduce((sum,p)=>sum+p.x,0)/points.length;
+  const y=points.reduce((sum,p)=>sum+p.y,0)/points.length;
+  centers.forEach((point,i)=>{
+    if(!point||Math.hypot(point.x-x,point.y-y)>220)return;
+    const cell=cells[i];
+    cancelCellRefresh(cell);
+    cell.discoveryStill=true;
+    cell.classList.add('discovery-still');
+    ['--hover-x','--hover-y','--hover-scale','--hover-light'].forEach(p=>cell.style.removeProperty(p));
+    hovered.delete(i);
+    discoveryCells.add(cell);
+  });
+  discoveryRipple.style.left=(x-fieldBounds.left)+'px';
+  discoveryRipple.style.top=(y-fieldBounds.top)+'px';
+  discoveryTimer=setTimeout(()=>{
+    releaseStillness();
+    discoveryRipple.classList.add('active');
+    discoveryTimer=setTimeout(()=>{
+      discoveryRipple.classList.remove('active');discoveryTimer=0;
+    },1800);
+  },2000);
+}
+
 // Recheck protection when each queued change actually runs, not only when scheduled.
 function cancelCellRefresh(cell){
   const timer=pendingRefresh.get(cell);
@@ -385,7 +462,7 @@ function cancelRefreshes(){
 }
 function canRefresh(cell,automatic){
   const id=Number(cell.dataset.index);
-  return cells[id]===cell&&!eggCells.has(id)&&!selected.has(id)&&!gesture&&!document.hidden&&
+  return cells[id]===cell&&!cell.discoveryStill&&!eggCells.has(id)&&!selected.has(id)&&!gesture&&!document.hidden&&
     (!automatic||!hovered.has(id));
 }
 function scheduleRefresh(cell,delay=0,automatic=false){
@@ -432,7 +509,7 @@ function scheduleAmbientRefresh(){
   const delay=180-Math.log(1-Math.random())*(meanGap-180);
   setTimeout(()=>{refreshScattered();scheduleAmbientRefresh()},delay);
 }
-document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelRefreshes()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelRefreshes();resetDiscovery(false)}});
 
 
 let selectionFrame=0;

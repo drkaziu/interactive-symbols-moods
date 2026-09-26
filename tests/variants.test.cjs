@@ -27,7 +27,7 @@ for (const [file, expected] of variants) {
     const math = Object.create(Math);
     math.random = () => 0;
     const context = {
-      symbols, cells, selected, pendingRefresh, eggCells: new Set(), placeEasterEgg() {}, gesture: null, hovered: new Set(),
+      queueDiscovery() {}, resetDiscovery() {}, symbols, cells, selected, pendingRefresh, eggCells: new Set(), placeEasterEgg() {}, gesture: null, hovered: new Set(),
       columns: 2, rows: 1, waveTimer: 0,
       reducedMotion: { matches: false }, Math: math,
       grid: { append() {} },
@@ -138,7 +138,7 @@ for (const [file, expectedEgg] of [['numbers.html','42'],['letters.html','HELLO'
       return {dataset:{index:String(i)},querySelector:()=>span,
         classList:{add(){},remove(){},toggle(){}},setAttribute(){}};
     });
-    const c={cells,columns,rows,Math:math,selected:new Set(),eggCells:new Set(),
+    const c={queueDiscovery() {},resetDiscovery() {},cells,columns,rows,Math:math,selected:new Set(),eggCells:new Set(),
       easterEgg:script.match(/const easterEgg='([^']+)';/)[1],
       symbols:script.match(/const symbols='([^']+)';/)[1],
       pendingRefresh:new Map(),waveTimer:0,gesture:null,document:{hidden:false},
